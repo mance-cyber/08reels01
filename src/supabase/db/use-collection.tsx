@@ -1,53 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSupabase } from '@/supabase';
-import type { Video, Version, Comment, Annotation } from '@/lib/types';
-
-// Map a raw DB video row + its versions/comments/annotations into our Video type
-function mapVideoRow(row: any): Video {
-  const versions: Version[] = (row.versions || []).map((v: any) => ({
-    id: v.id,
-    versionNumber: v.version_number,
-    status: v.status,
-    createdAt: v.created_at,
-    uploader: { id: v.uploader_id, name: v.uploader_name },
-    comments: (v.comments || []).map((c: any) => ({
-      id: c.id,
-      timecode: c.timecode,
-      timecodeFormatted: c.timecode_formatted,
-      text: c.text,
-      author: { id: c.author_id, name: c.author_name },
-      createdAt: c.created_at,
-    })),
-    annotations: (v.annotations || []).map((a: any) => ({
-      id: a.id,
-      type: a.type,
-      data: a.data,
-      author: { id: a.author_id, name: a.author_name },
-      createdAt: a.created_at,
-      timecode: a.timecode,
-    })),
-    isCurrentActive: v.is_current_active,
-    videoUrl: v.video_url,
-    qualities: v.qualities || [],
-    notes: v.notes,
-    thumbnailUrl: v.thumbnail_url,
-  }));
-
-  return {
-    id: row.id,
-    title: row.title,
-    thumbnailUrl: row.thumbnail_url,
-    thumbnailHint: row.thumbnail_hint,
-    author: { id: row.author_id, name: row.author_name },
-    uploadedAt: row.uploaded_at,
-    versions,
-    videoUrl: row.video_url,
-    assignedUserIds: row.assigned_user_ids || [],
-    isDeleted: row.is_deleted,
-    deletedAt: row.deleted_at,
-  };
-}
+import type { Video } from '@/lib/types';
+import { mapVideoRow } from './map-video-row';
 
 interface UseCollectionOptions {
   table: string;
@@ -65,14 +20,19 @@ export function useCollection<T>(
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  const fetchData = useCallback(async () => {
+  const hasInitialLoad = useRef(false);
+
+  const fetchData = useCallback(async (isRefetch = false) => {
     if (!options || options.enabled === false) {
       setData(null);
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    // 只在初次載入時顯示 loading 狀態，即時更新不會觸發整頁刷新
+    if (!isRefetch && !hasInitialLoad.current) {
+      setLoading(true);
+    }
 
     try {
       if (options.table === 'videos') {
@@ -83,8 +43,10 @@ export function useCollection<T>(
             *,
             versions (
               *,
-              comments (*),
-              annotations (*)
+              comments (
+                *,
+                annotations (*)
+              )
             )
           `);
 
@@ -130,6 +92,7 @@ export function useCollection<T>(
       setError(err);
     } finally {
       setLoading(false);
+      hasInitialLoad.current = true;
     }
   }, [supabase, options?.table, options?.orderBy?.column, options?.orderBy?.ascending, options?.enabled]);
 
@@ -153,8 +116,8 @@ export function useCollection<T>(
         'postgres_changes' as any,
         { event: '*', schema: 'public', table },
         () => {
-          // Refetch on any change
-          fetchData();
+          // Refetch on any change (background, no loading state)
+          fetchData(true);
         }
       );
     }
