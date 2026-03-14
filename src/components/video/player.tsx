@@ -1,6 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize, Loader2 } from 'lucide-react';
+import { Play, Pause, Volume2, Volume1, VolumeX, Maximize, Loader2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { QualitySelector } from './quality-selector';
@@ -35,6 +35,10 @@ export default function VideoPlayer({ src, poster, videoRef, isPaused, qualities
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const volumeContainerRef = useRef<HTMLDivElement>(null);
+  const volumeHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -192,9 +196,43 @@ export default function VideoPlayer({ src, poster, videoRef, isPaused, qualities
       // 如果取消靜音，隱藏自動靜音提示
       if (!videoRef.current.muted) {
         setAutoMutedMessage(false);
+        // 如果之前音量是0，恢復到合理音量
+        if (videoRef.current.volume === 0) {
+          videoRef.current.volume = 0.5;
+          setVolume(0.5);
+        }
       }
     }
   };
+
+  const handleVolumeChange = (value: number[]) => {
+    const newVolume = value[0] / 100;
+    if (videoRef.current) {
+      videoRef.current.volume = newVolume;
+      videoRef.current.muted = newVolume === 0;
+      setVolume(newVolume);
+      setIsMuted(newVolume === 0);
+      if (newVolume > 0) {
+        setAutoMutedMessage(false);
+      }
+    }
+  };
+
+  const handleVolumeMouseEnter = () => {
+    if (volumeHideTimeoutRef.current) {
+      clearTimeout(volumeHideTimeoutRef.current);
+      volumeHideTimeoutRef.current = null;
+    }
+    setShowVolumeSlider(true);
+  };
+
+  const handleVolumeMouseLeave = () => {
+    volumeHideTimeoutRef.current = setTimeout(() => {
+      setShowVolumeSlider(false);
+    }, 300);
+  };
+
+  const VolumeIcon = isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
   
   const handlePointerDown = () => {
     if (videoRef.current) {
@@ -459,6 +497,7 @@ export default function VideoPlayer({ src, poster, videoRef, isPaused, qualities
     video.addEventListener('pause', handlePause);
 
     setIsMuted(video.muted);
+    setVolume(video.volume);
 
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
@@ -576,9 +615,28 @@ export default function VideoPlayer({ src, poster, videoRef, isPaused, qualities
             >
               {isPlaying ? <Pause className="w-5 h-5 md:w-6 md:h-6" /> : <Play className="w-5 h-5 md:w-6 md:h-6" />}
             </Button>
-            <Button variant="ghost" size="icon" onClick={toggleMute} className="text-white hover:bg-white/20">
-              {isMuted ? <VolumeX className="w-5 h-5 md:w-6 md:h-6" /> : <Volume2 className="w-5 h-5 md:w-6 md:h-6" />}
-            </Button>
+            <div
+              ref={volumeContainerRef}
+              className="relative flex items-center"
+              onMouseEnter={handleVolumeMouseEnter}
+              onMouseLeave={handleVolumeMouseLeave}
+            >
+              <Button variant="ghost" size="icon" onClick={toggleMute} className="text-white hover:bg-white/20">
+                <VolumeIcon className="w-5 h-5 md:w-6 md:h-6" />
+              </Button>
+              {showVolumeSlider && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/80 rounded-lg px-3 py-4 backdrop-blur-sm">
+                  <Slider
+                    orientation="vertical"
+                    value={[isMuted ? 0 : volume * 100]}
+                    onValueChange={handleVolumeChange}
+                    max={100}
+                    step={1}
+                    className="h-24 w-1.5 [&_.slider-thumb]:size-3 [&_.slider-range]:bg-white"
+                  />
+                </div>
+              )}
+            </div>
             <span className="text-white text-xs md:text-sm font-mono ml-1">
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
