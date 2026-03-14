@@ -119,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             resolveInitial(authUser);
           } else {
             setUser(prev => prev ?? authUser);
+            setLoading(false);
           }
           // Enrich with DB profile data in the background (non-blocking)
           enrichUserProfile(session.user);
@@ -188,7 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
-      toast({ title: '註冊成功', description: '歡迎加入！您現在可以登入。' });
+      toast({ title: '註冊成功', description: '歡迎加入！' });
+      setLoading(false);
       return true;
     } catch (error: any) {
       console.error("Email sign-up failed", error);
