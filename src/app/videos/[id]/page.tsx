@@ -185,9 +185,20 @@ export default function VideoPage() {
   useEffect(() => {
     const videoEl = playerRef.current;
     if (!videoEl) return;
-    const onTimeUpdate = () => setCurrentTime(videoEl.currentTime);
-    videoEl.addEventListener('timeupdate', onTimeUpdate);
-    return () => videoEl.removeEventListener('timeupdate', onTimeUpdate);
+    const syncTime = () => setCurrentTime(videoEl.currentTime);
+    // timeupdate: fires during playback (~4Hz)
+    // seeked: fires after user seeks (drag slider, click comment timecode)
+    // loadeddata: fires when video loads (sync initial position)
+    videoEl.addEventListener('timeupdate', syncTime);
+    videoEl.addEventListener('seeked', syncTime);
+    videoEl.addEventListener('loadeddata', syncTime);
+    // Sync immediately in case video already has a position
+    syncTime();
+    return () => {
+      videoEl.removeEventListener('timeupdate', syncTime);
+      videoEl.removeEventListener('seeked', syncTime);
+      videoEl.removeEventListener('loadeddata', syncTime);
+    };
   }, [playerRef, selectedVersion]);
 
   // --- Space bar play/pause ---
