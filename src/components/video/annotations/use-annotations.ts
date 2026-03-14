@@ -96,7 +96,7 @@ export function useAnnotations({
       data,
       author: { id: user.id, name: user.name },
       createdAt: new Date().toISOString(),
-      timecode: Math.floor(currentTime),
+      timecode: currentTime,
     };
     history.add(annotation);
   }, [user, currentTime, history, effectiveCommentId]);
@@ -132,7 +132,7 @@ export function useAnnotations({
       data: textData,
       author: { id: user.id, name: user.name },
       createdAt: new Date().toISOString(),
-      timecode: Math.floor(currentTime),
+      timecode: currentTime,
     };
 
     history.add(annotation);
@@ -184,7 +184,7 @@ export function useAnnotations({
         data: imageData,
         author: { id: user.id, name: user.name },
         createdAt: new Date().toISOString(),
-        timecode: Math.floor(currentTime),
+        timecode: currentTime,
       };
 
       history.add(annotation);
@@ -305,16 +305,20 @@ export function useAnnotations({
     if (hasUnsavedChanges) {
       await save();
     }
-    history.setAnnotations([]);
-    setDeletedSavedIds(new Set());
-    setModifiedAnnotations(new Map());
-    setIsAnnotating(false);
-    setAnnotationMode('select');
-    setIsUploading(false);
-    setIsEditingText(false);
-    setEditingTextPosition(null);
-    setActiveCommentId(null);
-    onSelectAnnotation?.(null);
+    // 延遲清除本地狀態，等待 DB refetch 回來後再退出
+    // 避免儲存後註解短暫消失
+    setTimeout(() => {
+      history.setAnnotations([]);
+      setDeletedSavedIds(new Set());
+      setModifiedAnnotations(new Map());
+      setIsAnnotating(false);
+      setAnnotationMode('select');
+      setIsUploading(false);
+      setIsEditingText(false);
+      setEditingTextPosition(null);
+      setActiveCommentId(null);
+      onSelectAnnotation?.(null);
+    }, 800);
   }, [hasUnsavedChanges, save, history, onSelectAnnotation]);
 
   // --- Exit (discard changes) ---

@@ -176,7 +176,7 @@ export default function AnnotationCanvas({
       onTouchMove={onMouseMove}
       onTouchEnd={onMouseUp}
       onDoubleClick={onDoubleClick}
-      className="absolute top-0 left-0 w-full h-full"
+      className="absolute top-0 left-0 w-full h-full z-10"
       style={{
         pointerEvents: isAnnotating ? 'auto' : 'none',
         cursor: cursor(),
