@@ -6,15 +6,6 @@ export type User = {
   role?: 'admin' | 'employee';
 };
 
-export type Comment = {
-  id: string;
-  timecode: number;
-  timecodeFormatted: string;
-  text: string;
-  author: Pick<User, 'id' | 'name'>;
-  createdAt: string;
-};
-
 export type PenAnnotationData = {
   path: { x: number, y: number }[];
   color: string;
@@ -44,6 +35,7 @@ export type TextAnnotationData = {
 
 export type Annotation = {
     id: string;
+    commentId: string;
     type: 'pen' | 'image' | 'text';
     data: PenAnnotationData | ImageAnnotationData | TextAnnotationData;
     author: Pick<User, 'id' | 'name'>;
@@ -51,25 +43,33 @@ export type Annotation = {
     timecode: number;
 }
 
+export type Comment = {
+  id: string;
+  timecode: number;
+  timecodeFormatted: string;
+  text: string;
+  author: Pick<User, 'id' | 'name'>;
+  createdAt: string;
+  annotations: Annotation[];
+};
+
 export type VersionStatus = 'pending_review' | 'needs_changes' | 'approved' | 'rejected';
 
-// ✅ 新增：畫質選項的型別
 export interface QualityOption {
   label: string; // e.g., "1080p", "720p"
   url: string;
 }
 
 export type Version = {
-  id:string;
+  id: string;
   versionNumber: number;
   status: VersionStatus;
   createdAt: string;
   uploader: Pick<User, 'id' | 'name'>;
   comments: Comment[];
-  annotations: Annotation[];
   isCurrentActive: boolean;
-  videoUrl: string; // ✅ 保留一個主要的 URL 作為預設或後備
-  qualities?: QualityOption[]; // ✅ 新增：儲存不同畫質版本的陣列
+  videoUrl: string;
+  qualities?: QualityOption[];
   notes?: string;
   thumbnailUrl?: string;
 };

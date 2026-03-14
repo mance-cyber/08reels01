@@ -1,5 +1,5 @@
 'use client';
-import { MessageSquare, Plus, PenLine, Trash2, ImageUp, Type } from 'lucide-react';
+import { MessageSquare, Plus, PenLine, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,7 +17,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { cn } from '@/lib/utils';
-import type { AnnotationMode } from '@/components/video/annotations/types';
 
 
 interface CommentSectionProps {
@@ -28,19 +27,19 @@ interface CommentSectionProps {
   inputValue: string;
   onInputValueChange: (value: string) => void;
   onDeleteComment: (commentId: string) => void;
-  onAnnotationClick: (timecode: number, mode: AnnotationMode) => void;
+  onAnnotateClick: (commentId: string, timecode: number) => void;
   isAdmin: boolean;
 }
 
-export default function CommentSection({ 
-  comments, 
-  onCommentClick, 
-  currentTimeFormatted, 
-  onAddComment, 
-  inputValue, 
+export default function CommentSection({
+  comments,
+  onCommentClick,
+  currentTimeFormatted,
+  onAddComment,
+  inputValue,
   onInputValueChange,
   onDeleteComment,
-  onAnnotationClick,
+  onAnnotateClick,
   isAdmin,
 }: CommentSectionProps) {
   const { user } = useAppAuth();
@@ -51,16 +50,18 @@ export default function CommentSection({
       onInputValueChange('');
     }
   };
-  
+
   const canDelete = (comment: Comment) => {
     if (!user) return false;
     return user.role === 'admin' || user.id === comment.author.id;
   }
 
-  const handleAnnotationButtonClick = (e: React.MouseEvent, timecode: number, mode: AnnotationMode) => {
+  const handleAnnotateClick = (e: React.MouseEvent, commentId: string, timecode: number) => {
     e.stopPropagation();
-    onAnnotationClick(timecode, mode);
+    onAnnotateClick(commentId, timecode);
   }
+
+  const hasAnnotations = (comment: Comment) => comment.annotations.length > 0;
 
   return (
     <Card className="border-0 shadow-none">
@@ -73,9 +74,9 @@ export default function CommentSection({
       <CardContent className="space-y-4">
         {isAdmin && (
             <div>
-            <Textarea 
-                placeholder="在目前時間點新增評論..." 
-                className="mb-2" 
+            <Textarea
+                placeholder="在目前時間點新增評論..."
+                className="mb-2"
                 value={inputValue}
                 onChange={(e) => onInputValueChange(e.target.value)}
             />
@@ -93,7 +94,7 @@ export default function CommentSection({
               .sort((a,b) => a.timecode - b.timecode)
               .map(comment => (
               <div key={comment.id} className="text-sm group/comment relative">
-                <div 
+                <div
                   className="p-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted"
                   onClick={() => onCommentClick(comment.timecode)}
                 >
@@ -110,14 +111,20 @@ export default function CommentSection({
                         "absolute top-1 right-1 flex items-center gap-1 rounded-full border bg-background/80 p-1 backdrop-blur-sm",
                         "opacity-0 group-hover/comment:opacity-100 transition-opacity"
                     )}>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => handleAnnotationButtonClick(e, comment.timecode, 'pen')}>
-                            <PenLine className="h-3.5 w-3.5"/>
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => handleAnnotationButtonClick(e, comment.timecode, 'text')}>
-                            <Type className="h-3.5 w-3.5"/>
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => handleAnnotationButtonClick(e, comment.timecode, 'image')}>
-                            <ImageUp className="h-3.5 w-3.5"/>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-6 w-6",
+                            hasAnnotations(comment) && "text-primary"
+                          )}
+                          onClick={(e) => handleAnnotateClick(e, comment.id, comment.timecode)}
+                          title="註解"
+                        >
+                            <PenLine className={cn(
+                              "h-3.5 w-3.5",
+                              hasAnnotations(comment) && "fill-current"
+                            )} />
                         </Button>
                         {canDelete(comment) && (
                             <AlertDialog>

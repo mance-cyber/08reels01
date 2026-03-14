@@ -5,7 +5,6 @@ import { MessageSquare, GitBranch } from 'lucide-react';
 import CommentSection from './comment-section';
 import VersionSection from './version-section';
 import { Video, Version, VersionStatus, Comment } from '@/lib/types';
-import type { AnnotationMode } from '@/components/video/annotations/types';
 import { formatTime } from '@/components/video/annotations/utils';
 import { useSupabase } from '@/supabase';
 import { addCommentToVersion } from '@/supabase/db/videos';
@@ -16,7 +15,7 @@ interface SidePanelProps {
   selectedVersion: Version;
   onVersionChange: (versionId: string) => void;
   onTimecodeClick: (timecode: number) => void;
-  onAnnotationClick: (timecode: number, mode: AnnotationMode) => void;
+  onAnnotateClick: (commentId: string, timecode: number) => void;
   onDeleteComment: (commentId: string) => void;
   onVersionStatusChange: (versionId: string, status: VersionStatus) => void;
   onNewVersionUploaded?: () => void;
@@ -24,12 +23,12 @@ interface SidePanelProps {
   isAdmin: boolean;
 }
 
-export default function SidePanel({ 
-    video, 
-    selectedVersion, 
-    onVersionChange, 
-    onTimecodeClick, 
-    onAnnotationClick,
+export default function SidePanel({
+    video,
+    selectedVersion,
+    onVersionChange,
+    onTimecodeClick,
+    onAnnotateClick,
     onDeleteComment,
     onVersionStatusChange,
     onNewVersionUploaded,
@@ -51,7 +50,7 @@ export default function SidePanel({
       selectedVersion.id,
       {
         text: commentText,
-        timecode: currentTime, // 保留完整的小數點精度
+        timecode: currentTime,
         timecodeFormatted: formatTime(currentTime),
       },
       { id: user.id, name: user.name },
@@ -74,22 +73,22 @@ export default function SidePanel({
         </TabsList>
         <div className="flex-1 overflow-y-auto">
             <TabsContent value="comments" className="m-0">
-                <CommentSection 
-                    comments={selectedVersion.comments} 
-                    onCommentClick={onTimecodeClick} 
+                <CommentSection
+                    comments={selectedVersion.comments}
+                    onCommentClick={onTimecodeClick}
                     currentTimeFormatted={currentTimeFormatted}
                     onAddComment={handleAddComment}
                     inputValue={commentInput}
                     onInputValueChange={setCommentInput}
                     onDeleteComment={onDeleteComment}
-                    onAnnotationClick={onAnnotationClick}
+                    onAnnotateClick={onAnnotateClick}
                     isAdmin={isAdmin}
                 />
             </TabsContent>
             <TabsContent value="versions" className="m-0">
-                <VersionSection 
+                <VersionSection
                   video={video}
-                  versions={video.versions} 
+                  versions={video.versions}
                   selectedVersionId={selectedVersion.id}
                   onVersionChange={onVersionChange}
                   onStatusChange={onVersionStatusChange}

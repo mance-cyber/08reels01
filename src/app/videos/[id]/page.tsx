@@ -12,27 +12,14 @@ import { setVersionStatus, deleteCommentFromVersion } from '@/supabase/db/videos
 import { Skeleton } from '@/components/ui/skeleton';
 import { AppLayoutContext } from '@/components/app-layout';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
   AnnotationCanvas,
   AnnotationToolbar,
-  FloatingToolbar,
   InlineTextEditor,
   useAnnotations,
   useAnnotationInteraction,
-  useDropZone,
-  useAnnotationKeyboard,
   formatTime,
 } from '@/components/video/annotations';
-import type { AnnotationMode, CanvasScale } from '@/components/video/annotations/types';
+import type { CanvasScale } from '@/components/video/annotations/types';
 import type { TextAnnotationData, Annotation } from '@/lib/types';
 
 export default function VideoPage() {
@@ -54,7 +41,6 @@ export default function VideoPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const { toast } = useToast();
   const videoContainerRef = useRef<HTMLDivElement>(null);
-  const [showExitDialog, setShowExitDialog] = useState(false);
 
   const [videoNaturalSize, setVideoNaturalSize] = useState<{ width: number; height: number }>({
     width: 1920,
@@ -102,9 +88,14 @@ export default function VideoPage() {
     };
   }, [videoNaturalSize, containerSize]);
 
+  // Collect all annotations from all comments in the selected version
+  const allAnnotations = useMemo(() => {
+    if (!selectedVersion) return [];
+    return selectedVersion.comments.flatMap(c => c.annotations);
+  }, [selectedVersion]);
+
   // --- Annotation system ---
 
-  // Interaction ref for selection callback wiring
   const interactionRef = useRef<{ setSelectedAnnotationId: (id: string | null) => void } | null>(null);
 
   const handleAnnotationSelect = useCallback((id: string | null) => {
@@ -115,7 +106,8 @@ export default function VideoPage() {
     supabase,
     videoId,
     versionId: selectedVersionId || '',
-    existingAnnotations: selectedVersion?.annotations || [],
+    commentId: null, // Will be set when entering annotation mode
+    existingAnnotations: allAnnotations,
     currentTime,
     canvasScale,
     canvasHeight: videoNaturalSize.height,
@@ -135,39 +127,11 @@ export default function VideoPage() {
     onAddPen: annotations.addPenAnnotation,
     onUpdateAnnotation: annotations.updateAnnotation,
     onEnterTextMode: annotations.enterTextMode,
-    onSelectAnnotation: () => {}, // interaction manages its own selection state
+    onSelectAnnotation: () => {},
     onDoubleClickText: annotations.editExistingText,
   });
 
-  // Wire up the ref after interaction is created
   interactionRef.current = interaction;
-
-  const dropZone = useDropZone({
-    onDrop: (file, screenPos) => annotations.handleImageUpload(file, screenPos),
-    enabled: annotations.isAnnotating,
-  });
-
-  useAnnotationKeyboard({
-    onUndo: annotations.undo,
-    onRedo: annotations.redo,
-    onDelete: () => {
-      if (interaction.selectedAnnotationId) {
-        annotations.deleteAnnotation(interaction.selectedAnnotationId);
-        interaction.deselect();
-      }
-    },
-    onEscape: () => {
-      if (annotations.isEditingText) {
-        annotations.cancelTextEdit();
-      } else if (interaction.selectedAnnotationId) {
-        interaction.deselect();
-      }
-    },
-    enabled: annotations.isAnnotating,
-    canUndo: annotations.canUndo,
-    canRedo: annotations.canRedo,
-    hasSelection: !!interaction.selectedAnnotationId,
-  });
 
   // --- Version selection ---
   useEffect(() => {
@@ -249,14 +213,66 @@ export default function VideoPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePlayPause]);
 
+  // --- Keyboard shortcuts for annotation mode ---
+  useEffect(() => {
+    if (!annotations.isAnnotating) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isEditing = target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+
+      // Ctrl+Z / Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        if (annotations.canUndo) {
+          e.preventDefault();
+          annotations.undo();
+        }
+        return;
+      }
+
+      // Ctrl+Shift+Z / Cmd+Shift+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+        if (annotations.canRedo) {
+          e.preventDefault();
+          annotations.redo();
+        }
+        return;
+      }
+
+      if (isEditing) return;
+
+      // Delete / Backspace
+      if ((e.key === 'Delete' || e.key === 'Backspace') && interaction.selectedAnnotationId) {
+        e.preventDefault();
+        annotations.deleteAnnotation(interaction.selectedAnnotationId);
+        interaction.deselect();
+        return;
+      }
+
+      // Escape
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (annotations.isEditingText) {
+          annotations.cancelTextEdit();
+        } else if (interaction.selectedAnnotationId) {
+          interaction.deselect();
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [annotations, interaction]);
+
   // --- Side panel handlers ---
-  const handleAnnotationClick = useCallback((timecode: number, mode: AnnotationMode) => {
+  const handleAnnotateClick = useCallback((commentId: string, timecode: number) => {
     if (!isAdmin) return;
     if (playerRef.current) {
       playerRef.current.currentTime = timecode;
       playerRef.current.pause();
     }
-    annotations.enterAnnotationMode(mode);
+    annotations.enterAnnotationMode('select', commentId);
   }, [isAdmin, annotations]);
 
   const handleTimecodeClick = useCallback((timecode: number) => {
@@ -279,27 +295,6 @@ export default function VideoPage() {
     toast({ variant: 'default', title: '評論已刪除' });
   }, [supabase, video, user, selectedVersionId, toast]);
 
-  // --- Enter annotation mode (pause video) ---
-  const handleEnterAnnotation = useCallback((mode: AnnotationMode) => {
-    if (playerRef.current) playerRef.current.pause();
-    annotations.enterAnnotationMode(mode);
-  }, [annotations]);
-
-  // --- Exit with confirmation ---
-  const handleExitRequest = useCallback(() => {
-    if (annotations.hasUnsavedChanges) {
-      setShowExitDialog(true);
-    } else {
-      annotations.exit();
-    }
-  }, [annotations]);
-
-  // --- Floating toolbar annotation update helper ---
-  const updateSelectedTextProp = useCallback((ann: Annotation, prop: Partial<TextAnnotationData>) => {
-    const data = { ...ann.data } as TextAnnotationData;
-    annotations.updateAnnotation({ ...ann, data: { ...data, ...prop } });
-  }, [annotations]);
-
   // --- Loading state ---
   if (loading || !video || !selectedVersion || videosLoading) {
     return (
@@ -321,11 +316,6 @@ export default function VideoPage() {
     );
   }
 
-  // Find selected annotation for floating toolbar
-  const selectedAnnotation = interaction.selectedAnnotationId
-    ? annotations.visibleAnnotations.find(a => a.id === interaction.selectedAnnotationId) || null
-    : null;
-
   return (
     <>
       <Header title={video.title} />
@@ -334,9 +324,6 @@ export default function VideoPage() {
           <div
             ref={videoContainerRef}
             className="relative w-full max-w-5xl mx-auto"
-            onDragOver={dropZone.handleDragOver}
-            onDragLeave={dropZone.handleDragLeave}
-            onDrop={dropZone.handleDrop}
           >
             <VideoPlayer
               src={selectedVersion.videoUrl}
@@ -346,25 +333,10 @@ export default function VideoPage() {
               qualities={selectedVersion.qualities}
             />
 
-            {/* Drop zone overlay */}
-            {dropZone.isDragging && (
-              <div className="absolute inset-0 z-50 bg-blue-500/20 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center">
-                <span className="text-blue-700 font-medium text-lg bg-white/80 px-4 py-2 rounded">
-                  放開以新增圖片
-                </span>
-              </div>
-            )}
-
             {/* Annotation mode banner */}
             {annotations.isAnnotating && (
-              <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-orange-500 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2">
-                <span>註解模式已啟用（影片已暫停）</span>
-                <button
-                  onClick={handleExitRequest}
-                  className="bg-white text-orange-500 px-3 py-1 rounded hover:bg-gray-100 font-bold"
-                >
-                  退出
-                </button>
+              <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-orange-500 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium">
+                註解模式已啟用（影片已暫停）
               </div>
             )}
 
@@ -383,32 +355,14 @@ export default function VideoPage() {
                   onColorChange={annotations.setPenColor}
                   lineWidth={annotations.penLineWidth}
                   onLineWidthChange={annotations.setPenLineWidth}
-                  onSave={annotations.save}
-                  onExit={handleExitRequest}
-                  isSavingDisabled={!annotations.hasUnsavedChanges}
+                  onDone={annotations.done}
                   isUploading={annotations.isUploading}
                   canUndo={annotations.canUndo}
                   canRedo={annotations.canRedo}
                   onUndo={annotations.undo}
                   onRedo={annotations.redo}
-                  hasUnsavedChanges={annotations.hasUnsavedChanges}
                 />
               </div>
-            )}
-
-            {/* Floating context toolbar */}
-            {selectedAnnotation && annotations.isAnnotating && !annotations.isEditingText && (
-              <FloatingToolbar
-                annotation={selectedAnnotation}
-                canvasScale={canvasScale}
-                onFontSizeChange={(size) => updateSelectedTextProp(selectedAnnotation, { fontSize: size })}
-                onColorChange={(color) => updateSelectedTextProp(selectedAnnotation, { color })}
-                onBackgroundColorChange={(bg) => updateSelectedTextProp(selectedAnnotation, { backgroundColor: bg || undefined })}
-                onDelete={() => {
-                  annotations.deleteAnnotation(selectedAnnotation.id);
-                  interaction.deselect();
-                }}
-              />
             )}
 
             {/* Inline text editor */}
@@ -479,7 +433,7 @@ export default function VideoPage() {
             selectedVersion={selectedVersion}
             onVersionChange={setSelectedVersionId}
             onTimecodeClick={handleTimecodeClick}
-            onAnnotationClick={handleAnnotationClick}
+            onAnnotateClick={handleAnnotateClick}
             currentTimeFormatted={formatTime(currentTime)}
             onDeleteComment={handleDeleteComment}
             onVersionStatusChange={handleVersionStatusChange}
@@ -490,38 +444,6 @@ export default function VideoPage() {
           />
         </div>
       </main>
-
-      {/* Exit confirmation dialog */}
-      <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>尚未儲存的變更</AlertDialogTitle>
-            <AlertDialogDescription>
-              您有未儲存的註解變更。要如何處理？
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex gap-2">
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                annotations.exit();
-                setShowExitDialog(false);
-              }}
-            >
-              不儲存退出
-            </AlertDialogAction>
-            <AlertDialogAction
-              onClick={async () => {
-                await annotations.save();
-                setShowExitDialog(false);
-              }}
-            >
-              儲存並退出
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

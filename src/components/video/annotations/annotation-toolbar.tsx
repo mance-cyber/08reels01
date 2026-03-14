@@ -1,7 +1,7 @@
 'use client';
 
-import { Pen, MousePointer2, Save, X, Loader2, Type, Image as ImageIcon, Undo2, Redo2, Check } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Pen, MousePointer2, Loader2, Type, Image as ImageIcon, Undo2, Redo2, Check } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -15,15 +15,12 @@ interface AnnotationToolbarProps {
   readonly onColorChange: (color: string) => void;
   readonly lineWidth: number;
   readonly onLineWidthChange: (width: number) => void;
-  readonly onSave: () => void;
-  readonly onExit: () => void;
-  readonly isSavingDisabled: boolean;
+  readonly onDone: () => void;
   readonly isUploading: boolean;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly onUndo: () => void;
   readonly onRedo: () => void;
-  readonly hasUnsavedChanges: boolean;
 }
 
 const colors = ['#FF0000', '#FFFF00', '#0000FF', '#FFFFFF', '#000000'];
@@ -36,26 +33,21 @@ export default function AnnotationToolbar({
   onColorChange,
   lineWidth,
   onLineWidthChange,
-  onSave,
-  onExit,
-  isSavingDisabled,
+  onDone,
   isUploading,
   canUndo,
   canRedo,
   onUndo,
   onRedo,
-  hasUnsavedChanges,
 }: AnnotationToolbarProps) {
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [doneState, setDoneState] = useState<'idle' | 'saving'>('idle');
 
-  const handleSave = async () => {
-    setSaveState('saving');
+  const handleDone = async () => {
+    setDoneState('saving');
     try {
-      await onSave();
-      setSaveState('saved');
-      setTimeout(() => setSaveState('idle'), 1500);
-    } catch {
-      setSaveState('idle');
+      await onDone();
+    } finally {
+      setDoneState('idle');
     }
   };
 
@@ -130,30 +122,19 @@ export default function AnnotationToolbar({
           <Loader2 className="h-4 w-4 animate-spin" />
         </Button>
       ) : (
-        <>
-          <div className="relative">
-            <Button variant="outline" size="icon" onClick={onExit} title="退出">
-              <X className="h-4 w-4" />
-            </Button>
-            {hasUnsavedChanges && (
-              <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-orange-500" />
-            )}
-          </div>
-          <Button
-            size="icon"
-            onClick={handleSave}
-            disabled={isSavingDisabled || saveState === 'saving'}
-            title="儲存"
-          >
-            {saveState === 'saving' ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : saveState === 'saved' ? (
-              <Check className="h-4 w-4 text-green-500" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-          </Button>
-        </>
+        <Button
+          onClick={handleDone}
+          disabled={doneState === 'saving'}
+          title="完成"
+          className="gap-1.5"
+        >
+          {doneState === 'saving' ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Check className="h-4 w-4" />
+          )}
+          完成
+        </Button>
       )}
     </div>
   );

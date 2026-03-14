@@ -6,6 +6,7 @@ import type { Annotation } from '@/lib/types';
 function makeAnnotation(id: string, text: string = 'test'): Annotation {
   return {
     id,
+    commentId: 'comment-1',
     type: 'text',
     data: {
       text,
@@ -26,6 +27,7 @@ function makeAnnotation(id: string, text: string = 'test'): Annotation {
 function makePenAnnotation(id: string): Annotation {
   return {
     id,
+    commentId: 'comment-1',
     type: 'pen',
     data: {
       path: [{ x: 0, y: 0 }, { x: 100, y: 100 }],

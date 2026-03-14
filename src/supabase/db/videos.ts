@@ -111,6 +111,7 @@ export async function addAnnotationsToVersion(
 ) {
   const rows = annotations.map(anno => ({
     version_id: versionId,
+    comment_id: anno.commentId,
     type: anno.type,
     data: anno.data,
     author_id: anno.author.id,
@@ -172,7 +173,7 @@ export async function addCommentToVersion(
   supabase: SupabaseClient,
   videoId: string,
   versionId: string,
-  commentData: Omit<Comment, 'id' | 'createdAt' | 'author'>,
+  commentData: Omit<Comment, 'id' | 'createdAt' | 'author' | 'annotations'>,
   author: Pick<User, 'id' | 'name'>,
 ) {
   const { error } = await supabase

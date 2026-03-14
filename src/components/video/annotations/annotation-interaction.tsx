@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import type { Annotation, ImageAnnotationData, TextAnnotationData, PenAnnotationData } from '@/lib/types';
 import type { AnnotationMode, InteractionAction, Point, HandlePosition, CanvasScale } from './types';
 import { isPointInRotatedRect, getHandleAtPoint, calculateHandleSize } from './utils';
+import { getCanvasCoords } from './coords';
 
 interface UseAnnotationInteractionProps {
   readonly annotations: readonly Annotation[];
@@ -42,8 +43,7 @@ export function useAnnotationInteraction({
   const [pathTick, setPathTick] = useState(0);
 
   const getCoords = useCallback((event: React.MouseEvent | React.TouchEvent) => {
-    const target = event.currentTarget as HTMLCanvasElement;
-    const rect = target.getBoundingClientRect();
+    const canvas = event.currentTarget as HTMLCanvasElement;
 
     let clientX: number, clientY: number;
     if ('touches' in event.nativeEvent) {
@@ -54,11 +54,8 @@ export function useAnnotationInteraction({
       clientY = (event.nativeEvent as MouseEvent).clientY;
     }
 
-    return {
-      x: (clientX - rect.left) * canvasScale.scaleX,
-      y: (clientY - rect.top) * canvasScale.scaleY,
-    };
-  }, [canvasScale]);
+    return getCanvasCoords(clientX, clientY, canvas);
+  }, []);
 
   const findAnnotationAtPoint = useCallback((point: Point): Annotation | null => {
     for (let i = annotations.length - 1; i >= 0; i--) {

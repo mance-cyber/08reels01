@@ -6,6 +6,7 @@ import type { Annotation, PenAnnotationData, ImageAnnotationData, TextAnnotation
 import type { AnnotationMode, Point, CanvasScale } from './types';
 import { useAnnotationHistory } from './use-annotation-history';
 import { screenToCanvas, calculateActualFontSize, NEW_ANNOTATION_PREFIX, isNewAnnotation } from './utils';
+import { isAnnotationVisible } from './visibility';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { addAnnotationsToVersion, updateAnnotationInVersion, deleteAnnotationFromVersion } from '@/supabase/db/videos';
 import { uploadAnnotationImage } from '@/supabase/storage';
@@ -14,6 +15,7 @@ interface UseAnnotationsProps {
   readonly supabase: SupabaseClient;
   readonly videoId: string;
   readonly versionId: string;
+  readonly commentId: string | null;
   readonly existingAnnotations: Annotation[];
   readonly currentTime: number;
   readonly canvasScale: CanvasScale;
@@ -28,6 +30,7 @@ export function useAnnotations({
   supabase,
   videoId,
   versionId,
+  commentId,
   existingAnnotations,
   currentTime,
   canvasScale,
@@ -47,9 +50,13 @@ export function useAnnotations({
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [deletedSavedIds, setDeletedSavedIds] = useState<Set<string>>(new Set());
   const [modifiedAnnotations, setModifiedAnnotations] = useState<Map<string, Annotation>>(new Map());
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const history = useAnnotationHistory();
+
+  // The effective commentId is either the explicitly passed one or the active one
+  const effectiveCommentId = commentId ?? activeCommentId;
 
   // Merge existing + new, filter deleted
   const allAnnotations = useMemo(() => {
@@ -59,34 +66,32 @@ export function useAnnotations({
     return [...existing, ...history.annotations];
   }, [existingAnnotations, history.annotations, deletedSavedIds, modifiedAnnotations]);
 
-  // Visibility: annotation mode = always show at timecode, viewing = 1s window
+  // Visibility: use the new 0.5s window logic
   const visibleAnnotations = useMemo(() => {
-    const quantizedTime = Math.floor(currentTime * 4) / 4; // quantize to 250ms
-    return allAnnotations.filter(a => {
-      if (isAnnotating) {
-        return a.timecode === Math.floor(quantizedTime);
-      }
-      return quantizedTime >= a.timecode && quantizedTime < a.timecode + 1;
-    });
+    return allAnnotations.filter(a => isAnnotationVisible(a, currentTime, isAnnotating));
   }, [allAnnotations, currentTime, isAnnotating]);
 
   const hasUnsavedChanges = history.annotations.length > 0 || deletedSavedIds.size > 0 || modifiedAnnotations.size > 0;
 
   // --- Actions ---
 
-  const enterAnnotationMode = useCallback((mode: AnnotationMode) => {
+  const enterAnnotationMode = useCallback((mode: AnnotationMode, targetCommentId?: string) => {
     if (!isAdmin) return;
     setIsAnnotating(true);
     setAnnotationMode(mode);
+    if (targetCommentId) {
+      setActiveCommentId(targetCommentId);
+    }
     if (mode === 'image') {
       imageInputRef.current?.click();
     }
   }, [isAdmin]);
 
   const addPenAnnotation = useCallback((data: PenAnnotationData) => {
-    if (!user) return;
+    if (!user || !effectiveCommentId) return;
     const annotation: Annotation = {
       id: `${NEW_ANNOTATION_PREFIX}${uuidv4()}`,
+      commentId: effectiveCommentId,
       type: 'pen',
       data,
       author: { id: user.id, name: user.name },
@@ -94,10 +99,10 @@ export function useAnnotations({
       timecode: Math.floor(currentTime),
     };
     history.add(annotation);
-  }, [user, currentTime, history]);
+  }, [user, currentTime, history, effectiveCommentId]);
 
   const addTextAnnotation = useCallback((text: string, canvasPosition: Point, fontSize: number, color: string, backgroundColor?: string) => {
-    if (!user) return;
+    if (!user || !effectiveCommentId) return;
 
     const tempCanvas = document.createElement('canvas');
     const ctx = tempCanvas.getContext('2d');
@@ -122,6 +127,7 @@ export function useAnnotations({
 
     const annotation: Annotation = {
       id: `${NEW_ANNOTATION_PREFIX}${uuidv4()}`,
+      commentId: effectiveCommentId,
       type: 'text',
       data: textData,
       author: { id: user.id, name: user.name },
@@ -134,10 +140,10 @@ export function useAnnotations({
     setEditingTextPosition(null);
     setAnnotationMode('select');
     onToast({ title: '文字註解已新增' });
-  }, [user, currentTime, canvasHeight, history, onToast]);
+  }, [user, currentTime, canvasHeight, history, onToast, effectiveCommentId]);
 
   const handleImageUpload = useCallback(async (file: File, screenPosition?: Point) => {
-    if (!user) return;
+    if (!user || !effectiveCommentId) return;
     setIsUploading(true);
     setAnnotationMode('select');
 
@@ -173,6 +179,7 @@ export function useAnnotations({
 
       const annotation: Annotation = {
         id: `${NEW_ANNOTATION_PREFIX}${uuidv4()}`,
+        commentId: effectiveCommentId,
         type: 'image',
         data: imageData,
         author: { id: user.id, name: user.name },
@@ -189,7 +196,7 @@ export function useAnnotations({
       setIsUploading(false);
       if (imageInputRef.current) imageInputRef.current.value = '';
     }
-  }, [user, supabase, videoId, versionId, canvasScale, currentTime, history, onToast, onSelectAnnotation]);
+  }, [user, supabase, videoId, versionId, canvasScale, currentTime, history, onToast, onSelectAnnotation, effectiveCommentId]);
 
   const handleImageFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -241,7 +248,6 @@ export function useAnnotations({
 
   const cleanAnnotationData = (annotation: Annotation): Annotation => {
     const cleaned = structuredClone(annotation);
-    // Remove undefined values by converting to null then cleaning
     const data = cleaned.data as Record<string, unknown>;
     for (const key of Object.keys(data)) {
       if (data[key] === undefined) {
@@ -267,13 +273,13 @@ export function useAnnotations({
         promises.push(addAnnotationsToVersion(supabase, videoId, versionId, toAdd as Omit<Annotation, 'id'>[]));
       }
 
-      // Update modified annotations (batch)
+      // Update modified annotations
       for (const [, annotation] of modifiedAnnotations) {
         const cleaned = cleanAnnotationData(annotation);
         promises.push(updateAnnotationInVersion(supabase, videoId, versionId, cleaned));
       }
 
-      // Delete saved annotations (batch)
+      // Delete saved annotations
       for (const id of deletedSavedIds) {
         promises.push(deleteAnnotationFromVersion(supabase, videoId, versionId, id));
       }
@@ -285,8 +291,6 @@ export function useAnnotations({
       history.setAnnotations([]);
       setDeletedSavedIds(new Set());
       setModifiedAnnotations(new Map());
-      setIsAnnotating(false);
-      setAnnotationMode('select');
 
       onToast({ title: `已儲存 ${totalCount} 個註解` });
     } catch (error) {
@@ -295,7 +299,25 @@ export function useAnnotations({
     }
   }, [user, hasUnsavedChanges, history, modifiedAnnotations, deletedSavedIds, supabase, videoId, versionId, onToast]);
 
-  // --- Exit ---
+  // --- Done (auto-save + exit) ---
+
+  const done = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      await save();
+    }
+    history.setAnnotations([]);
+    setDeletedSavedIds(new Set());
+    setModifiedAnnotations(new Map());
+    setIsAnnotating(false);
+    setAnnotationMode('select');
+    setIsUploading(false);
+    setIsEditingText(false);
+    setEditingTextPosition(null);
+    setActiveCommentId(null);
+    onSelectAnnotation?.(null);
+  }, [hasUnsavedChanges, save, history, onSelectAnnotation]);
+
+  // --- Exit (discard changes) ---
 
   const exit = useCallback(() => {
     history.setAnnotations([]);
@@ -306,6 +328,7 @@ export function useAnnotations({
     setIsUploading(false);
     setIsEditingText(false);
     setEditingTextPosition(null);
+    setActiveCommentId(null);
     onSelectAnnotation?.(null);
   }, [history, onSelectAnnotation]);
 
@@ -324,6 +347,7 @@ export function useAnnotations({
     canUndo: history.canUndo,
     canRedo: history.canRedo,
     imageInputRef,
+    activeCommentId: effectiveCommentId,
 
     // Mode
     setAnnotationMode,
@@ -348,6 +372,7 @@ export function useAnnotations({
 
     // Lifecycle
     save,
+    done,
     exit,
   };
 }

@@ -1,12 +1,11 @@
 export { default as AnnotationCanvas } from './annotation-canvas';
 export { default as AnnotationToolbar } from './annotation-toolbar';
-export { default as FloatingToolbar } from './floating-toolbar';
 export { default as InlineTextEditor } from './inline-text-editor';
 export { drawSelectionHandles } from './selection-handles';
 export { useAnnotationInteraction } from './annotation-interaction';
 export { useAnnotationHistory } from './use-annotation-history';
 export { useAnnotations } from './use-annotations';
-export { useDropZone } from './use-drop-zone';
-export { useAnnotationKeyboard } from './use-keyboard-shortcuts';
+export { isAnnotationVisible } from './visibility';
+export { getCanvasCoords } from './coords';
 export * from './types';
 export * from './utils';
