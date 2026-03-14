@@ -23,5 +23,7 @@ export function isAnnotationVisible(
   }
 
   // During playback: visible for exactly 0.5 seconds
-  return currentTime >= timecode && currentTime < timecode + 0.5;
+  // Small epsilon (50ms) to handle floating-point precision from video element
+  const epsilon = 0.05;
+  return currentTime >= timecode - epsilon && currentTime < timecode + 0.5;
 }

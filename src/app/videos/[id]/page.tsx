@@ -283,11 +283,15 @@ export default function VideoPage() {
       playerRef.current.currentTime = timecode;
       playerRef.current.pause();
     }
+    // Sync immediately so annotations at this timecode are visible right away
+    setCurrentTime(timecode);
     annotations.enterAnnotationMode('select', commentId);
   }, [isAdmin, annotations]);
 
   const handleTimecodeClick = useCallback((timecode: number) => {
     if (playerRef.current) playerRef.current.currentTime = timecode;
+    // Sync immediately — don't wait for seeked event
+    setCurrentTime(timecode);
   }, []);
 
   const handleVersionStatusChange = useCallback((versionId: string, status: VersionStatus) => {
