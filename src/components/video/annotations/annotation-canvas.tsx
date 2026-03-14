@@ -43,6 +43,13 @@ export default function AnnotationCanvas({
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const [imageTick, setImageTick] = useState(0);
 
+  // Clear image cache on unmount
+  useEffect(() => {
+    return () => {
+      imageCache.current.clear();
+    };
+  }, []);
+
   const getDisplayWidth = useCallback(() => {
     return canvasRef.current?.getBoundingClientRect().width || width;
   }, [width]);
@@ -68,6 +75,11 @@ export default function AnnotationCanvas({
       newImg.crossOrigin = 'anonymous';
       newImg.src = data.url;
       newImg.onload = () => {
+        // Evict oldest entry if cache is full
+        if (imageCache.current.size >= 50) {
+          const firstKey = imageCache.current.keys().next().value;
+          if (firstKey) imageCache.current.delete(firstKey);
+        }
         imageCache.current.set(data.url, newImg);
         // Trigger re-render to redraw with loaded image (avoids stale closure)
         setImageTick(t => t + 1);

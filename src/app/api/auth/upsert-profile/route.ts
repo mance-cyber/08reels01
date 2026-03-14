@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Server-side route: uses service_role key to bypass RLS
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ahglddhcfbbxrhmdqvrz.supabase.co';
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFoZ2xkZGhjZmJieHJobWRxdnJ6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzIwNDIzOCwiZXhwIjoyMDg4NzgwMjM4fQ.EjTEdcjyJSun-zIVN9Xs8vj_cgf3fHRARWPjMjxOm7E';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 export async function POST(req: NextRequest) {

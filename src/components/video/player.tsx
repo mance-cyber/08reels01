@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Play, Pause, Volume2, Volume1, VolumeX, Maximize, Loader2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
@@ -231,6 +231,39 @@ export default function VideoPlayer({ src, poster, videoRef, isPaused, qualities
       setShowVolumeSlider(false);
     }, 300);
   };
+
+  // Mobile: toggle volume slider on touch/tap of the volume area
+  const handleVolumeTouchStart = useCallback((e: React.TouchEvent) => {
+    // Prevent the touch from also firing mouse events
+    e.stopPropagation();
+    setShowVolumeSlider((prev) => !prev);
+  }, []);
+
+  // Mobile: close volume slider when tapping outside the volume container
+  useEffect(() => {
+    if (!showVolumeSlider || !isMobile) return;
+
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (
+        volumeContainerRef.current &&
+        !volumeContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowVolumeSlider(false);
+      }
+    };
+
+    // Use a microtask delay so the current tap doesn't immediately close
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('touchstart', handleOutsideClick);
+      document.addEventListener('mousedown', handleOutsideClick);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('touchstart', handleOutsideClick);
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showVolumeSlider, isMobile]);
 
   const VolumeIcon = isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
   
@@ -618,8 +651,9 @@ export default function VideoPlayer({ src, poster, videoRef, isPaused, qualities
             <div
               ref={volumeContainerRef}
               className="relative flex items-center"
-              onMouseEnter={handleVolumeMouseEnter}
-              onMouseLeave={handleVolumeMouseLeave}
+              onMouseEnter={isMobile ? undefined : handleVolumeMouseEnter}
+              onMouseLeave={isMobile ? undefined : handleVolumeMouseLeave}
+              onTouchStart={isMobile ? handleVolumeTouchStart : undefined}
             >
               <Button variant="ghost" size="icon" onClick={toggleMute} className="text-white hover:bg-white/20">
                 <VolumeIcon className="w-5 h-5 md:w-6 md:h-6" />

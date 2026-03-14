@@ -4,8 +4,8 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 let ffmpeg: FFmpeg | null = null;
-let isLoading = false;
 let isLoaded = false;
+let loadingPromise: Promise<FFmpeg> | null = null;
 
 export interface FFmpegOptimizationOptions {
   maxWidth?: number;
@@ -37,65 +37,60 @@ export async function loadFFmpeg(onLog?: (message: string) => void): Promise<FFm
     return ffmpeg;
   }
 
-  if (isLoading) {
-    // 等待載入完成
-    while (isLoading) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    if (ffmpeg && isLoaded) {
-      return ffmpeg;
-    }
+  if (loadingPromise) {
+    return loadingPromise;
   }
 
-  isLoading = true;
-
-  try {
-    ffmpeg = new FFmpeg();
-
-    if (onLog) {
-      ffmpeg.on('log', ({ message }) => {
-        onLog(message);
-      });
-    }
-
-    // 載入 FFmpeg core - 使用 unpkg CDN
-    // 注意:版本號應該與 @ffmpeg/ffmpeg 套件相容
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-
+  loadingPromise = (async (): Promise<FFmpeg> => {
     try {
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-      });
-    } catch (loadError) {
-      // 如果 CDN 載入失敗,嘗試使用備用 CDN
-      console.warn('主要 CDN 載入失敗,嘗試備用 CDN...', loadError);
-      const altBaseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+      ffmpeg = new FFmpeg();
 
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${altBaseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${altBaseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-      });
-    }
-
-    isLoaded = true;
-    return ffmpeg;
-  } catch (error) {
-    console.error('FFmpeg 載入失敗:', error);
-    isLoaded = false;
-    ffmpeg = null;
-
-    // 提供更詳細的錯誤訊息
-    if (error instanceof Error) {
-      if (error.message.includes('SharedArrayBuffer')) {
-        throw new Error('瀏覽器不支援 SharedArrayBuffer。請確保使用 HTTPS 並且瀏覽器支援此功能。');
+      if (onLog) {
+        ffmpeg.on('log', ({ message }) => {
+          onLog(message);
+        });
       }
-      throw new Error(`FFmpeg 載入失敗: ${error.message}`);
+
+      // 載入 FFmpeg core - 使用 unpkg CDN
+      // 注意:版本號應該與 @ffmpeg/ffmpeg 套件相容
+      const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+
+      try {
+        await ffmpeg.load({
+          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+        });
+      } catch (loadError) {
+        // 如果 CDN 載入失敗,嘗試使用備用 CDN
+        console.warn('主要 CDN 載入失敗,嘗試備用 CDN...', loadError);
+        const altBaseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+
+        await ffmpeg.load({
+          coreURL: await toBlobURL(`${altBaseURL}/ffmpeg-core.js`, 'text/javascript'),
+          wasmURL: await toBlobURL(`${altBaseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+        });
+      }
+
+      isLoaded = true;
+      return ffmpeg;
+    } catch (error) {
+      console.error('FFmpeg 載入失敗:', error);
+      isLoaded = false;
+      ffmpeg = null;
+      loadingPromise = null;
+
+      // 提供更詳細的錯誤訊息
+      if (error instanceof Error) {
+        if (error.message.includes('SharedArrayBuffer')) {
+          throw new Error('瀏覽器不支援 SharedArrayBuffer。請確保使用 HTTPS 並且瀏覽器支援此功能。');
+        }
+        throw new Error(`FFmpeg 載入失敗: ${error.message}`);
+      }
+      throw new Error('無法載入 FFmpeg,請重新整理頁面後再試');
     }
-    throw new Error('無法載入 FFmpeg,請重新整理頁面後再試');
-  } finally {
-    isLoading = false;
-  }
+  })();
+
+  return loadingPromise;
 }
 
 /**
@@ -279,7 +274,7 @@ function getFileExtension(filename: string): string {
  * 預載 FFmpeg (在背景載入以加速首次使用)
  */
 export function preloadFFmpeg(): void {
-  if (!isLoaded && !isLoading) {
+  if (!isLoaded && !loadingPromise) {
     loadFFmpeg().catch(console.error);
   }
 }

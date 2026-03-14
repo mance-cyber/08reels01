@@ -311,7 +311,7 @@ export default function VideoPage() {
   }, [supabase, video, user, selectedVersionId, toast]);
 
   // --- Loading state ---
-  if (loading || !video || !selectedVersion || videosLoading) {
+  if (!video || !selectedVersion) {
     return (
       <>
         <Header title="載入中..." />

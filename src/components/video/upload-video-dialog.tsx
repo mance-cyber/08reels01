@@ -1,6 +1,6 @@
 'use client';
 import { useSupabase } from '@/supabase';
-import { useState, ReactNode, useEffect } from 'react';
+import { useState, ReactNode, useEffect, useRef, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { addVideo } from '@/supabase/db/videos';
 
-import { Loader2, Image as ImageIcon, Users, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, Image as ImageIcon, Users, CheckCircle2, AlertCircle, Upload } from 'lucide-react';
 import { uploadVideoAndGetUrl, generateVideoThumbnail } from '@/supabase/storage';
 
 import { Progress } from '@/components/ui/progress';
@@ -61,6 +61,8 @@ interface UploadVideoDialogProps {
 }
 
 export function UploadVideoDialog({ isOpen, onOpenChange }: UploadVideoDialogProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [optimizationProgress, setOptimizationProgress] = useState(0);
@@ -140,46 +142,54 @@ export function UploadVideoDialog({ isOpen, onOpenChange }: UploadVideoDialogPro
     fetchEmployees();
   }, [isOpen, toast, user, isAdmin]);
 
+  const processVideoFile = useCallback(async (file: File) => {
+    // Create a synthetic FileList so form validation works
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    const fileList = dataTransfer.files;
+
+    form.setValue('videoFile', fileList, { shouldValidate: true });
+    setOriginalFileSize(file.size);
+    setOptimizedFileSize(0);
+    setVideoAnalysis(null);
+
+    // 分析影片
+    setIsAnalyzing(true);
+    try {
+      const analysis = await checkVideoStreamingOptimization(file);
+      setVideoAnalysis(analysis);
+
+      // 如果影片位元率過高,自動建議優化
+      if (analysis.recommendations.length > 0 && isFFmpegSupported) {
+        setOptimizeEnabled(true);
+      }
+    } catch (error) {
+      console.error("Video analysis failed:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+
+    setThumbnailPreview(null);
+    setIsGeneratingThumbnail(true);
+    try {
+      const thumbnailBlob = await generateVideoThumbnail(file);
+      setThumbnailPreview(URL.createObjectURL(thumbnailBlob));
+    } catch (error) {
+      console.error("Thumbnail generation failed:", error);
+      toast({
+        variant: 'destructive',
+        title: '縮圖預覽生成失敗',
+        description: '無法從此影片生成預覽,但仍可繼續上傳。',
+      });
+    } finally {
+      setIsGeneratingThumbnail(false);
+    }
+  }, [form, isFFmpegSupported, toast]);
+
   const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      const file = files[0];
-      form.setValue('videoFile', files, { shouldValidate: true });
-      setOriginalFileSize(file.size);
-      setOptimizedFileSize(0);
-      setVideoAnalysis(null);
-
-      // 分析影片
-      setIsAnalyzing(true);
-      try {
-        const analysis = await checkVideoStreamingOptimization(file);
-        setVideoAnalysis(analysis);
-
-        // 如果影片位元率過高,自動建議優化
-        if (analysis.recommendations.length > 0 && isFFmpegSupported) {
-          setOptimizeEnabled(true);
-        }
-      } catch (error) {
-        console.error("Video analysis failed:", error);
-      } finally {
-        setIsAnalyzing(false);
-      }
-
-      setThumbnailPreview(null);
-      setIsGeneratingThumbnail(true);
-      try {
-        const thumbnailBlob = await generateVideoThumbnail(file);
-        setThumbnailPreview(URL.createObjectURL(thumbnailBlob));
-      } catch (error) {
-        console.error("Thumbnail generation failed:", error);
-        toast({
-          variant: 'destructive',
-          title: '縮圖預覽生成失敗',
-          description: '無法從此影片生成預覽,但仍可繼續上傳。',
-        });
-      } finally {
-        setIsGeneratingThumbnail(false);
-      }
+      await processVideoFile(files[0]);
     } else {
       form.resetField('videoFile');
       setThumbnailPreview(null);
@@ -187,6 +197,45 @@ export function UploadVideoDialog({ isOpen, onOpenChange }: UploadVideoDialogPro
       setVideoAnalysis(null);
     }
   };
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (isSubmitting) return;
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (ACCEPTED_VIDEO_TYPES.includes(file.type)) {
+        await processVideoFile(file);
+      } else {
+        toast({
+          variant: 'destructive',
+          title: '不支援的檔案格式',
+          description: '僅支援 MP4, MOV, AVI, WEBM 格式的影片檔案。',
+        });
+      }
+    }
+  }, [isSubmitting, processVideoFile, toast]);
   
   useEffect(() => {
     if(isOpen) {
@@ -204,6 +253,7 @@ export function UploadVideoDialog({ isOpen, onOpenChange }: UploadVideoDialogPro
       setVideoAnalysis(null);
       setIsAnalyzing(false);
       setFfmpegLog('');
+      setIsDragging(false);
     }
   }, [isOpen, form]);
 
@@ -382,12 +432,51 @@ export function UploadVideoDialog({ isOpen, onOpenChange }: UploadVideoDialogPro
                     <FormItem>
                       <FormLabel>影片檔案</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="file" 
-                          accept={ACCEPTED_VIDEO_TYPES.join(',')}
-                          disabled={isSubmitting}
-                          onChange={handleVideoFileChange}
-                        />
+                        <div
+                          onDragOver={handleDragOver}
+                          onDragEnter={handleDragEnter}
+                          onDragLeave={handleDragLeave}
+                          onDrop={handleDrop}
+                          className={`
+                            relative flex flex-col items-center justify-center gap-2
+                            rounded-lg border-2 border-dashed p-6 transition-colors cursor-pointer
+                            ${isDragging
+                              ? 'border-primary bg-primary/5'
+                              : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+                            }
+                            ${isSubmitting ? 'opacity-50 pointer-events-none' : ''}
+                          `}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <Upload className={`h-8 w-8 ${isDragging ? 'text-primary' : 'text-muted-foreground'}`} />
+                          <p className="text-sm text-muted-foreground">
+                            拖放影片檔案到此處
+                          </p>
+                          <p className="text-xs text-muted-foreground">或</p>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={isSubmitting}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              fileInputRef.current?.click();
+                            }}
+                          >
+                            選擇檔案
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            支援 MP4, MOV, AVI, WEBM (最大 1GB)
+                          </p>
+                          <Input
+                            ref={fileInputRef}
+                            type="file"
+                            accept={ACCEPTED_VIDEO_TYPES.join(',')}
+                            disabled={isSubmitting}
+                            onChange={handleVideoFileChange}
+                            className="hidden"
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                       {originalFileSize > 0 && (

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSupabase } from '@/supabase';
 import type { Video } from '@/lib/types';
 import { mapVideoRow } from './map-video-row';
@@ -76,6 +76,28 @@ export function useDoc<T>(
     fetchData();
   }, [fetchData]);
 
+  // Debounced refetch for realtime events
+  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedRefetch = useCallback(() => {
+    if (refetchTimerRef.current) {
+      clearTimeout(refetchTimerRef.current);
+    }
+    refetchTimerRef.current = setTimeout(() => {
+      fetchData(true);
+      refetchTimerRef.current = null;
+    }, 500);
+  }, [fetchData]);
+
+  // Clear debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (refetchTimerRef.current) {
+        clearTimeout(refetchTimerRef.current);
+      }
+    };
+  }, []);
+
   // Realtime subscription
   useEffect(() => {
     if (!options || !options.id) return;
@@ -92,7 +114,7 @@ export function useDoc<T>(
         'postgres_changes' as any,
         { event: '*', schema: 'public', table },
         () => {
-          fetchData(true);
+          debouncedRefetch();
         }
       );
     }
@@ -102,7 +124,7 @@ export function useDoc<T>(
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabase, options?.table, options?.id, fetchData]);
+  }, [supabase, options?.table, options?.id, debouncedRefetch]);
 
   return { data, loading, error, setData };
 }

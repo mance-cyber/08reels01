@@ -4,10 +4,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter } from '@/components/ui/sidebar';
 import Link from 'next/link';
-import { Film, LogOut, Home, Shield } from 'lucide-react';
+import { Film, LogOut, Home, Shield, Search } from 'lucide-react';
 import { Icons } from '@/components/icons';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useCollection } from '@/supabase';
 import type { Video } from '@/lib/types';
 
@@ -34,26 +35,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const { data: initialVideos, loading: videosLoading, error } = useCollection<Video>(videosQuery);
   const [videos, setVideos] = useState<Video[] | null>(null);
+  const [sidebarSearch, setSidebarSearch] = useState('');
 
   useEffect(() => {
     if (initialVideos) {
       setVideos(initialVideos);
     }
   }, [initialVideos]);
+
+  // Clear videos state on logout
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setVideos(null);
+      setSidebarSearch('');
+    }
+  }, [isAuthenticated]);
   
   const filteredVideos = useMemo(() => {
     if (!videos || !user) return [];
-    if (user.role === 'admin') {
-      return videos.filter(v => !v.isDeleted);
-    }
-    return videos.filter(v => {
-      if (v.isDeleted) return false;
-      const isAuthor = v.author.id === user.id;
-      const isAssigned = v.assignedUserIds?.includes(user.id);
-      const isPublic = !v.assignedUserIds || v.assignedUserIds.length === 0;
-      return isAuthor || isAssigned || isPublic;
-    });
-  }, [videos, user]);
+    const searchLower = sidebarSearch.toLowerCase().trim();
+    const roleFiltered = user.role === 'admin'
+      ? videos.filter(v => !v.isDeleted)
+      : videos.filter(v => {
+          if (v.isDeleted) return false;
+          const isAuthor = v.author.id === user.id;
+          const isAssigned = v.assignedUserIds?.includes(user.id);
+          const isPublic = !v.assignedUserIds || v.assignedUserIds.length === 0;
+          return isAuthor || isAssigned || isPublic;
+        });
+    if (!searchLower) return roleFiltered;
+    return roleFiltered.filter(v => v.title.toLowerCase().includes(searchLower));
+  }, [videos, user, sidebarSearch]);
   
 
   useEffect(() => {
@@ -120,6 +132,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                     專案列表 {filteredVideos && filteredVideos.length > 0 && `(${filteredVideos.length})`}
                   </p>
+                  <div className="px-3 pb-2 group-data-[collapsible=icon]:hidden">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="搜尋專案..."
+                        value={sidebarSearch}
+                        onChange={e => setSidebarSearch(e.target.value)}
+                        className="h-7 pl-7 text-xs"
+                      />
+                    </div>
+                  </div>
                   
                   {videosLoading && !videos && Array.from({ length: 3 }).map((_, i) => (
                     <SidebarMenuItem key={i}>
